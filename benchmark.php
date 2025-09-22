@@ -51,7 +51,19 @@ class JsonBenchmark
             
             $profiler = new MemoryProfiler();
             
-            // Read entire file into memory
+            // Read entire file into memory with memory monitoring
+            $currentMemory = memory_get_usage(true);
+            $availableMemory = $memoryLimit - $currentMemory;
+            
+            if ($fileSize > $availableMemory * 0.5) {
+                echo "WARNING: Insufficient available memory for safe json_decode() execution.\n";
+                echo "Current memory: " . MemoryProfiler::formatBytes($currentMemory) . "\n";
+                echo "Available memory: " . MemoryProfiler::formatBytes($availableMemory) . "\n";
+                echo "Required memory (estimated): " . MemoryProfiler::formatBytes($fileSize * 3) . "\n";
+                echo "Skipping standard json_decode() test.\n\n";
+                return false;
+            }
+            
             $jsonContent = file_get_contents($this->jsonFile);
             $dataSize = strlen($jsonContent);
             
@@ -81,8 +93,27 @@ class JsonBenchmark
             echo "Standard json_decode() completed.\n\n";
             return true;
             
+        } catch (Error $e) {
+            // Handle PHP Fatal Errors (like memory exhaustion)
+            if (strpos($e->getMessage(), 'memory') !== false || 
+                strpos($e->getMessage(), 'Memory') !== false) {
+                echo "MEMORY EXHAUSTED: json_decode() ran out of memory.\n";
+                echo "Error: " . $e->getMessage() . "\n";
+                echo "Try increasing memory limit or use JSON Machine streaming.\n\n";
+            } else {
+                echo "FATAL ERROR in json_decode(): " . $e->getMessage() . "\n\n";
+            }
+            return false;
         } catch (Exception $e) {
-            echo "Standard json_decode() failed: " . $e->getMessage() . "\n\n";
+            // Handle other exceptions
+            if (strpos($e->getMessage(), 'memory') !== false || 
+                strpos($e->getMessage(), 'Memory') !== false) {
+                echo "MEMORY EXHAUSTED: json_decode() ran out of memory.\n";
+                echo "Error: " . $e->getMessage() . "\n";
+                echo "Try increasing memory limit or use JSON Machine streaming.\n\n";
+            } else {
+                echo "ERROR in json_decode(): " . $e->getMessage() . "\n\n";
+            }
             return false;
         }
     }
@@ -98,9 +129,24 @@ class JsonBenchmark
         $itemCount = 0;
         
         try {
-            // Check available memory and adjust approach accordingly
+            // Check available memory and file size
             $fileSize = filesize($this->jsonFile);
             $memoryLimit = $this->getMemoryLimitInBytes();
+            $currentMemory = memory_get_usage(true);
+            $availableMemory = $memoryLimit - $currentMemory;
+            
+            // JSON Machine needs some memory for parsing buffers
+            $estimatedMemoryNeeded = max($fileSize * 0.1, 50 * 1024 * 1024); // At least 50MB or 10% of file size
+            
+            if ($estimatedMemoryNeeded > $availableMemory) {
+                echo "WARNING: Insufficient memory for JSON Machine streaming.\n";
+                echo "Current memory: " . MemoryProfiler::formatBytes($currentMemory) . "\n";
+                echo "Available memory: " . MemoryProfiler::formatBytes($availableMemory) . "\n";
+                echo "Estimated memory needed: " . MemoryProfiler::formatBytes($estimatedMemoryNeeded) . "\n";
+                echo "Try increasing memory limit to at least " . 
+                     MemoryProfiler::formatBytes($currentMemory + $estimatedMemoryNeeded) . "\n\n";
+                return false;
+            }
             
             // Stream JSON data
             $items = Items::fromFile($this->jsonFile);
@@ -121,6 +167,15 @@ class JsonBenchmark
                 // Record memory usage periodically
                 if ($itemCount % 1000 === 0) {
                     $profiler->recordMemoryUsage();
+                    
+                    // Check if we're approaching memory limit
+                    $currentMem = memory_get_usage(true);
+                    if ($currentMem > $memoryLimit * 0.9) {
+                        echo "WARNING: Approaching memory limit during streaming.\n";
+                        echo "Current memory: " . MemoryProfiler::formatBytes($currentMem) . "\n";
+                        echo "Stopping processing to prevent memory exhaustion.\n";
+                        break;
+                    }
                 }
                 
                 // For very large single objects, limit processing for benchmark purposes
@@ -130,8 +185,34 @@ class JsonBenchmark
                 }
             }
             
+        } catch (Error $e) {
+            // Handle PHP Fatal Errors (like memory exhaustion)
+            if (strpos($e->getMessage(), 'memory') !== false || 
+                strpos($e->getMessage(), 'Memory') !== false) {
+                echo "MEMORY EXHAUSTED: JSON Machine ran out of memory during streaming.\n";
+                echo "Error: " . $e->getMessage() . "\n";
+                echo "This file might be too large even for streaming. Consider:\n";
+                echo "1. Increasing memory limit further\n";
+                echo "2. Processing file in smaller chunks\n";
+                echo "3. Using a different approach for this file size\n\n";
+            } else {
+                echo "FATAL ERROR in JSON Machine: " . $e->getMessage() . "\n\n";
+            }
+            return false;
         } catch (Exception $e) {
-            throw new Exception('JSON Machine error: ' . $e->getMessage());
+            // Handle other exceptions
+            if (strpos($e->getMessage(), 'memory') !== false || 
+                strpos($e->getMessage(), 'Memory') !== false) {
+                echo "MEMORY EXHAUSTED: JSON Machine ran out of memory during streaming.\n";
+                echo "Error: " . $e->getMessage() . "\n";
+                echo "This file might be too large even for streaming. Consider:\n";
+                echo "1. Increasing memory limit further\n";
+                echo "2. Processing file in smaller chunks\n";
+                echo "3. Using a different approach for this file size\n\n";
+            } else {
+                echo "ERROR in JSON Machine: " . $e->getMessage() . "\n\n";
+            }
+            return false;
         }
         
         $fileSize = filesize($this->jsonFile);
@@ -144,6 +225,7 @@ class JsonBenchmark
         $this->results->addResult('json_machine', $results);
         
         echo "JSON Machine streaming completed.\n\n";
+        return true;
     }
     
     /**
@@ -209,6 +291,9 @@ class JsonBenchmark
         }
         echo "Warmup completed.\n\n";
         
+        $standardSuccess = false;
+        $streamingSuccess = false;
+        
         try {
             // Run standard json_decode
             $standardSuccess = $this->benchmarkStandardJsonDecode();
@@ -217,15 +302,30 @@ class JsonBenchmark
             sleep(1);
             
             // Run JSON Machine streaming
-            $this->benchmarkJsonMachine();
+            $streamingSuccess = $this->benchmarkJsonMachine();
+            
+            // Check if we have any results to display
+            $resultsData = $this->results->getResults();
+            if (empty($resultsData)) {
+                echo str_repeat("=", 80) . "\n";
+                echo "NO SUCCESSFUL BENCHMARKS\n";
+                echo str_repeat("=", 80) . "\n\n";
+                echo "Both json_decode() and JSON Machine failed due to memory constraints.\n";
+                echo "Recommendations:\n";
+                echo "1. Increase PHP memory limit: php -d memory_limit=512M benchmark.php\n";
+                echo "2. Use a smaller test file\n";
+                echo "3. Process the file in chunks\n";
+                echo "4. Consider using a streaming JSON parser designed for very large files\n\n";
+                return;
+            }
             
             // Display results
             $this->results->displayResults();
             
             // Show recommendation based on results
-            $this->showRecommendation($standardSuccess);
+            $this->showRecommendation($standardSuccess, $streamingSuccess);
             
-            // Export results
+            // Export results only if we have some
             $resultsDir = __DIR__ . '/results';
             if (!is_dir($resultsDir)) {
                 mkdir($resultsDir, 0755, true);
@@ -234,7 +334,11 @@ class JsonBenchmark
             $this->results->exportToJson($resultsFile);
             
         } catch (Exception $e) {
-            echo "Error during benchmark: " . $e->getMessage() . "\n";
+            echo "Unexpected error during benchmark: " . $e->getMessage() . "\n";
+            exit(1);
+        } catch (Error $e) {
+            echo "Fatal error during benchmark: " . $e->getMessage() . "\n";
+            echo "This is likely a memory-related issue. Try increasing memory limit.\n";
             exit(1);
         }
     }
@@ -242,19 +346,38 @@ class JsonBenchmark
     /**
      * Show recommendation based on benchmark results
      */
-    private function showRecommendation($standardSuccess)
+    private function showRecommendation($standardSuccess, $streamingSuccess)
     {
         echo str_repeat("=", 80) . "\n";
         echo "RECOMMENDATION\n";
         echo str_repeat("=", 80) . "\n\n";
         
-        if (!$standardSuccess) {
+        if (!$standardSuccess && !$streamingSuccess) {
+            echo "RESULT: Both methods failed due to memory constraints\n";
+            echo "RECOMMENDATION: \n";
+            echo "• Increase memory limit significantly (try 512M or 1G)\n";
+            echo "• Use smaller test files\n";
+            echo "• Consider chunked processing approaches\n\n";
+            return;
+        }
+        
+        if (!$standardSuccess && $streamingSuccess) {
+            echo "RESULT: JSON Machine succeeded where json_decode() failed\n";
             echo "RECOMMENDATION: Use JSON Machine streaming\n";
             echo "Reason: File is too large for standard json_decode() with current memory limits.\n";
             echo "JSON Machine allows processing large files with minimal memory usage.\n\n";
             return;
         }
         
+        if ($standardSuccess && !$streamingSuccess) {
+            echo "RESULT: Standard json_decode() succeeded but JSON Machine failed\n";
+            echo "RECOMMENDATION: Use standard json_decode()\n";
+            echo "Note: This is unusual - streaming should typically use less memory.\n";
+            echo "Consider investigating JSON structure or increasing memory slightly.\n\n";
+            return;
+        }
+        
+        // Both succeeded - detailed comparison
         $results = $this->results->getResults();
         if (count($results) >= 2) {
             $jsonDecodeTime = $results['json_decode']['execution_time'];
