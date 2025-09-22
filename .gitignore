@@ -1,0 +1,97 @@
+# Composer dependencies
+/vendor/
+composer.lock
+
+# Benchmark results (exclude from version control)
+/results/
+benchmark_results_*.json
+
+# Generated test data
+/data/sample_data.json
+/data/generated_*.json
+
+# PHP
+*.log
+*.tmp
+*.cache
+.phpunit.result.cache
+phpunit.xml
+php_errors.log
+
+# IDE and Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.buildpath
+.settings/
+*.sublime-project
+*.sublime-workspace
+*.code-workspace
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# Environment files
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+
+# Temporary files
+*.temp
+*.pid
+*.seed
+*.tmp
+*.bak
+*.backup
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Cache directories
+cache/
+tmp/
+temp/
+storage/logs/
+storage/framework/cache/
+storage/framework/sessions/
+storage/framework/views/
+
+# Memory dumps
+*.heapsnapshot
+
+# Local configuration files
+config.local.php
+config.development.php
+
+# Uploads (if any)
+uploads/
+files/
+
+# Node.js (if used for any tooling)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Docker
+.docker/
+docker-compose.override.yml
+
+# Vagrant
+.vagrant/
+*.box

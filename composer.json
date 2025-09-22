@@ -1,0 +1,22 @@
+{
+    "name": "jatisampurna/poc-json-decode",
+    "description": "Performance comparison between json_decode() and streaming JSON parsing",
+    "type": "project",
+    "require": {
+        "php": "^7.3|^8.0",
+        "halaxa/json-machine": "^1.1"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^9.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "PocJsonDecode\\": "src/"
+        }
+    },
+    "config": {
+        "optimize-autoloader": true
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
